@@ -2,6 +2,8 @@ import { AppServer, AppSession, ViewType, AuthenticatedRequest, PhotoData } from
 import { Request, Response } from 'express';
 import * as ejs from 'ejs';
 import * as path from 'path';
+import * as fs from 'fs';
+import { exec } from 'child_process';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
 /**
@@ -17,9 +19,23 @@ interface StoredPhoto {
   size: number;
 }
 
+/**
+ * Interface representing a word entry to be sent to the API
+ */
+interface WordEntry {
+  word: string;
+  translation: string;
+  anglosax: string;
+  picture: string;
+  timestamp: string;
+  language: string;
+  id: number;
+}
+
 const PACKAGE_NAME = process.env.PACKAGE_NAME ?? (() => { throw new Error('PACKAGE_NAME is not set in .env file'); })();
 const MENTRAOS_API_KEY = process.env.MENTRAOS_API_KEY ?? (() => { throw new Error('MENTRAOS_API_KEY is not set in .env file'); })();
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? (() => { throw new Error('GEMINI_API_KEY is not set in .env file'); })();
+const API_ENDPOINT = process.env.API_ENDPOINT ?? (() => { throw new Error('API_ENDPOINT is not set in .env file'); })();
 const PORT = parseInt(process.env.PORT || '3000');
 
 /**
@@ -41,7 +57,7 @@ async function analyzeImageWithGemini(imageBytes: Buffer, mimeType: string): Pro
       },
     };
 
-    const prompt = "What is the subject of this image? Answer in few words, with no adjectives, just a noun.";
+    const prompt = "What is the subject of this image? Answer in few words, with no adjectives or grammar, just a noun.";
 
     const result = await model.generateContent([prompt, imagePart]);
     const response = await result.response;
@@ -79,6 +95,34 @@ async function translateWithGemini(wordOrPhrase: string): Promise<{characters: s
     return translation;
   } catch (error) {
     console.error('Error translating with Gemini API:', error);
+    throw error;
+  }
+}
+
+/**
+ * Sends a word entry to the external API
+ * @param wordData - The word entry data to send
+ * @returns Promise<void>
+ */
+async function sendWordToAPI(wordData: WordEntry): Promise<void> {
+  try {
+    const response = await fetch(`${API_ENDPOINT}/words`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true'
+      },
+      body: JSON.stringify(wordData)
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const result = await response.json();
+    console.log('Word successfully sent to API:', result);
+  } catch (error) {
+    console.error('Error sending word to API:', error);
     throw error;
   }
 }
@@ -139,13 +183,28 @@ class ViewLingo extends AppServer {
             console.log(`Word found in photo from Gemini: ${word_found}`);
             const translation_response = await translateWithGemini(word_found);
             console.log(`Translation response from Gemini: ${JSON.stringify(translation_response)}`);
+            session.layouts.showTextWall(`Translation: ${translation_response.characters} (${translation_response.anglicized})`, {durationMs: 5000});
+            const response = await session.audio.speak(`${word_found} in Mandarin is ${translation_response.characters}`);
 
-            
+            // Send the word entry to the external API
+            const wordEntry: WordEntry = {
+              word: word_found,
+              translation: translation_response.characters,
+              anglosax: translation_response.anglicized,
+              picture: photo.buffer.toString('base64'), // Encode photo buffer as base64
+              timestamp: new Date().toISOString(),
+              language: 'zh',
+              id: Date.now() // Use timestamp as a unique ID
+            };
+            await sendWordToAPI(wordEntry);
+
           } catch (error) {
             this.logger.error(`Error analyzing photo with Gemini: ${error}`);
             session.layouts.showTextWall("Error analyzing photo", {durationMs: 3000});
           }
           
+          // Cache the photo (this will save it to file and open it)
+          this.debugSavePhoto(photo, userId);
         } catch (error) {
           this.logger.error(`Error taking photo: ${error}`);
         }
@@ -166,7 +225,7 @@ class ViewLingo extends AppServer {
           this.nextPhotoTime.set(userId, Date.now());
 
           // cache the photo for display
-          this.cachePhoto(photo, userId);
+          this.debugSavePhoto(photo, userId);
         } catch (error) {
           this.logger.error(`Error auto-taking photo: ${error}`);
         }
@@ -184,7 +243,7 @@ class ViewLingo extends AppServer {
   /**
    * Cache a photo for display
    */
-  private async cachePhoto(photo: PhotoData, userId: string) {
+  private async debugSavePhoto(photo: PhotoData, userId: string) {
     // create a new stored photo object which includes the photo data and the user id
     const cachedPhoto: StoredPhoto = {
       requestId: photo.requestId,
@@ -196,13 +255,39 @@ class ViewLingo extends AppServer {
       size: photo.size
     };
 
-    // this example app simply stores the photo in memory for display in the webview, but you could also send the photo to an AI api,
-    // or store it in a database or cloud storage, send it to roboflow, or do other processing here
+    // Save photo to local file
+    try {
+      const photosDir = path.join(process.cwd(), 'photos');
+      if (!fs.existsSync(photosDir)) {
+        fs.mkdirSync(photosDir, { recursive: true });
+      }
 
-    // cache the photo for display
-    this.photos.set(userId, cachedPhoto);
-    // update the latest photo timestamp
-    this.latestPhotoTimestamp.set(userId, cachedPhoto.timestamp.getTime());
+      const extension = photo.mimeType.includes('jpeg') ? 'jpg' : 
+                       photo.mimeType.includes('png') ? 'png' : 
+                       photo.mimeType.includes('webp') ? 'webp' : 'jpg';
+      
+      const filename = `photo_${userId}_${Date.now()}.${extension}`;
+      const filepath = path.join(photosDir, filename);
+      
+      fs.writeFileSync(filepath, photo.buffer);
+      this.logger.info(`Photo saved to: ${filepath}`);
+      
+      // Open the file automatically (works on macOS, Linux, Windows)
+      const openCommand = process.platform === 'darwin' ? 'open' : 
+                         process.platform === 'win32' ? 'start' : 'xdg-open';
+      
+      exec(`${openCommand} "${filepath}"`, (error) => {
+        if (error) {
+          this.logger.error(`Error opening photo: ${error}`);
+        } else {
+          this.logger.info(`Photo opened: ${filepath}`);
+        }
+      });
+      
+    } catch (error) {
+      this.logger.error(`Error saving photo to file: ${error}`);
+    }
+
     this.logger.info(`Photo cached for user ${userId}, timestamp: ${cachedPhoto.timestamp}`);
   }
 
