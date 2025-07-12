@@ -57,3 +57,6 @@ def get_words_of_the_day(date: str = Query(..., description="Date in YYYY-MM-DD 
         if isinstance(w.get('timestamp'), datetime):
             w['timestamp'] = w['timestamp'].isoformat()
     return words 
+
+
+@app.get('/translate/')
