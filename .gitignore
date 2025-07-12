@@ -13,8 +13,9 @@ yarn-debug.log*
 yarn-error.log* 
 .history/
 .env
-__pycache__/
-db/translations.db
-db/translations.db-shm
-db/translations.db-wal 
+db/__pycache__/
+db/translations.db 
+# WAL and SHM files for SQLite
+db/translations.db-wal
+db/translations.db-shm 
 
