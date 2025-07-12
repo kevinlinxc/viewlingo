@@ -63,7 +63,7 @@ async function analyzeImageWithGemini(imageBytes: Buffer, mimeType: string): Pro
 async function translateWithGemini(wordOrPhrase: string): Promise<{characters: string, anglicized: string}> {
   try {
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const formatPrompt = '{"characters": "", "anglicized": ""}';
     const prompt = `What is \`${wordOrPhrase}\` in Mandarin Chinese? Answer in this JSON format: ${formatPrompt}, with no other formatting or padding`;
@@ -125,6 +125,7 @@ class ViewLingo extends AppServer {
       } else {
         this.logger.info(`User short pressed, taking photo`);
         session.layouts.showTextWall("Button pressed, about to take photo", {durationMs: 4000});
+        console.log("User short pressed, taking photo");
         // the user pressed the button, so we take a single photo
         try {
           // first, get the photo
@@ -134,14 +135,17 @@ class ViewLingo extends AppServer {
           
           // Analyze the photo with Gemini
           try {
-            const analysis = await analyzeImageWithGemini(photo.buffer, photo.mimeType);
-            session.layouts.showTextWall(`Analysis: ${analysis}`, {durationMs: 5000});
+            const word_found = await analyzeImageWithGemini(photo.buffer, photo.mimeType);
+            console.log(`Word found in photo from Gemini: ${word_found}`);
+            const translation_response = await translateWithGemini(word_found);
+            console.log(`Translation response from Gemini: ${JSON.stringify(translation_response)}`);
+
+            
           } catch (error) {
             this.logger.error(`Error analyzing photo with Gemini: ${error}`);
             session.layouts.showTextWall("Error analyzing photo", {durationMs: 3000});
           }
           
-          this.cachePhoto(photo, userId);
         } catch (error) {
           this.logger.error(`Error taking photo: ${error}`);
         }
