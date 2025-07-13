@@ -143,7 +143,22 @@ class ViewLingo extends AppServer {
             session.layouts.showTextWall(`Translation: ${translation_response.characters} (${translation_response.anglicized})`, {durationMs: 5000});
             const speak = `${translation_response.word} in Mandarin is ${translation_response.characters}`;
             console.log(`Speaking ${speak}`)
-            const response = await session.audio.speak(speak);
+            const elevenLabsVoiceId = process.env.ELEVENLABS_VOICE_ID || "your_elevenlabs_voice_id";
+            const elevenLabsModelId = process.env.ELEVENLABS_MODEL_ID || "eleven_flash_v2_5";
+            const voiceSettings = {
+              stability: 0.7,
+              similarity_boost: 0.8,
+              style: 0.3,
+              speed: 0.9
+            };
+            await session.audio.speak(
+              speak,
+              {
+                voice_id: elevenLabsVoiceId,
+                model_id: elevenLabsModelId,
+                voice_settings: voiceSettings
+              }
+            );
 
             // Send the word entry to the external API
             const wordEntry: WordEntry = {
