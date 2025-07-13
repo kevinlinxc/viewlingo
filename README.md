@@ -1,3 +1,6 @@
+<img width="511" height="508" alt="techstack" src="https://github.com/user-attachments/assets/1287e700-fa38-411e-be36-d83cc524ca07" />
+<img width="349" height="532" alt="Architecture2" src="https://github.com/user-attachments/assets/4d8b4882-b555-4e5d-b45f-c3ec70f9169e" />
+
 # MentraOS-Camera-Example-App
 
 This is a simple example app which demonstrates how to use the MentraOS Camera API to take photos and display them in a webview.
