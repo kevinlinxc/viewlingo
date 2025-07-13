@@ -92,12 +92,18 @@ async function sendWordToAPI(wordData: WordEntry): Promise<void> {
   }
 }
 
+
+
+
 /**
  * Photo Taker App with webview functionality for displaying photos
  * Extends AppServer to provide photo taking and webview display capabilities
  */
 class ViewLingo extends AppServer {
   private currentWordData: WordEntry | null = null;
+  private listeningUntil: number = 0; // Timestamp when listening expires
+  private readonly LISTENING_DURATION_MS = 10000; // 10 seconds
+  private customPrompt: string = "You are a language learning assistant. The user just learned about this word: {word} ({translation} - {anglicized}). Please respond helpfully to their question or comment about this word. Keep responses brief and educational.";
 
   constructor() {
     super({
@@ -107,6 +113,59 @@ class ViewLingo extends AppServer {
     });
   }
 
+  /**
+   * Set custom prompt for Gemini interactions
+   */
+  setCustomPrompt(prompt: string): void {
+    this.customPrompt = prompt;
+  }
+
+  /**
+   * Send text prompt to Gemini with current word context
+   */
+  async sendPromptToGemini(text: string): Promise<string> {
+    try {
+      if (!this.currentWordData) {
+        console.error('No current word data available.');
+        return '';
+      }
+      const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+      let prompt = this.customPrompt;
+      
+      // Replace placeholders with current word data
+      if (this.currentWordData) {
+        prompt = prompt.replace('{word}', this.currentWordData.word);
+        prompt = prompt.replace('{translation}', this.currentWordData.translation);
+        prompt = prompt.replace('{anglicized}', this.currentWordData.anglosax);
+      }
+      
+      const fullPrompt = `${prompt}\n\nUser said: "${text}"`;
+      
+      const result = await model.generateContent(fullPrompt);
+      const response = await result.response;
+      return response.text();
+    } catch (error) {
+      console.error('Error sending prompt to Gemini:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Set listening state to active for the configured duration
+   */
+  private setListening(): void {
+    this.listeningUntil = Date.now() + this.LISTENING_DURATION_MS;
+    console.log(`Listening activated. You have ${this.LISTENING_DURATION_MS / 1000} seconds.`);
+  }
+
+  /**
+   * Check if currently in listening state
+   */
+  private isListening(): boolean {
+    return Date.now() < this.listeningUntil;
+  }
 
   /**
    * Handle new session creation and button press events
@@ -114,7 +173,7 @@ class ViewLingo extends AppServer {
   protected async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> {
     // this gets called whenever a user launches the app
     console.log(`Session started for user ${userId}`);
-    session.audio.speak("Ready!")
+    await session.audio.speak("Ready!")
 
     // set the initial state of the user
 
@@ -128,7 +187,7 @@ class ViewLingo extends AppServer {
         return;
       } else {
         console.log(`User short pressed, taking photo`);
-        session.audio.speak("Taking photo, hold still");
+        await session.audio.speak("Hold still, taking photo");
         // the user pressed the button, so we take a single photo
         try {
           // first, get the photo
@@ -151,7 +210,7 @@ class ViewLingo extends AppServer {
               style: 0.3,
               speed: 0.9
             };
-            await session.audio.speak(
+            const response = await session.audio.speak(
               speak,
               {
                 voice_id: elevenLabsVoiceId,
@@ -170,7 +229,12 @@ class ViewLingo extends AppServer {
               language: 'zh',
               id: Date.now() // Use timestamp as a unique ID
             };
+            
+            // Store current word data for context
+            this.currentWordData = wordEntry;
+            
             await sendWordToAPI(wordEntry);
+            this.setListening();
 
           } catch (error) {
             this.logger.error(`Error analyzing photo with Gemini: ${error}`);
@@ -185,22 +249,27 @@ class ViewLingo extends AppServer {
       }
     });
 
-    // session.events.onTranscription((data) => {
-    //   // this gets called whenever the user speaks
-    //   console.log(`Transcription received: ${data.text}`);
-    //   session.layouts.showTextWall(data.text, {durationMs: 5000});
-
-    //   // if the user said "take photo", we take a photo
-    //   const lowercase = data.text.toLowerCase();
-    //   if (lowercase.includes("what's this") || lowercase.includes("what is this") || lowercase.includes("how do I say")) {
-    //     session.layouts.showTextWall("Taking photo...", {durationMs: 2000});
-    //     session.camera.requestPhoto().then(photo => {
-    //       this.debugSavePhoto(photo, userId);
-    //     }).catch(error => {
-    //       this.logger.error(`Error taking photo: ${error}`);
-    //     });
-    //   }
-    // });
+    session.events.onTranscription(async (data) => {
+      // Only process final transcriptions when listening
+      if (this.isListening() && data.isFinal) {
+        console.log(`Transcription received: ${data.text}`);
+        this.setListening(); // Reset listening timer
+        
+        try {
+          // Send transcription to Gemini with current word context
+          const geminiResponse = await this.sendPromptToGemini(data.text);
+          console.log(`Gemini response: ${geminiResponse}`);
+          
+          // Display and speak the response
+          session.layouts.showTextWall(geminiResponse, {durationMs: 5000});
+          await session.audio.speak(geminiResponse);
+          
+        } catch (error) {
+          console.error('Error processing transcription with Gemini:', error);
+          session.layouts.showTextWall("Sorry, I didn't understand that", {durationMs: 3000});
+        }
+      }
+    });
   }
 
   protected async onStop(sessionId: string, userId: string, reason: string): Promise<void> {
