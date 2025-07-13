@@ -66,7 +66,8 @@ def get_words_of_the_day(date: str = Query(..., description="Date in YYYY-MM-DD 
         day_end = day_start.replace(hour=23, minute=59, second=59, microsecond=999999)
     except ValueError:
         return JSONResponse(status_code=400, content={"detail": "Invalid date format. Use YYYY-MM-DD."})
-    words = list(table.find(timestamp={"between": [day_start, day_end]}))
+    # Get the latest 8 rows for the given date, ordered by timestamp descending
+    words = list(table.find(timestamp={"between": [day_start, day_end]}, order_by='-timestamp', _limit=8))
     for w in words:
         if isinstance(w.get('timestamp'), datetime):
             w['timestamp'] = w['timestamp'].isoformat()
