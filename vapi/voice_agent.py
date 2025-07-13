@@ -1,7 +1,7 @@
 import requests
 from datetime import datetime
 
-def get_words_for_today(api_url="https://1f62a5b52290.ngrok-free.app/words"):
+def get_words_for_today(api_url="https://7ae419dac31f.ngrok-free.app/words"):
     today = datetime.now().strftime("%Y-%m-%d")
     response = requests.get(api_url, params={"date": today})
     response.raise_for_status()
