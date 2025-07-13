@@ -34,6 +34,14 @@ class WordEntry(BaseModel):
     language: Optional[str] = None
     id: Optional[int] = None
 
+class LocationEntry(BaseModel):
+    name: str
+    translated_name: str
+    translated_name_anglicized: str # Assuming this is the same for now
+    id: Optional[int] = None
+
+
+
 @app.get('/words', response_model=List[WordEntry], response_class=JSONResponse)
 def get_words():
     table = db['translations']
@@ -87,4 +95,27 @@ def get_words_today():
             w['timestamp'] = w['timestamp'].isoformat()
     return JSONResponse(content=words)
 
-# @app.get('/translate/')
+@app.post('/locations', response_class=JSONResponse)
+def add_location(location: LocationEntry):
+    table = db['locations']
+    if not location.name or not location.translated_name:
+        return JSONResponse(status_code=400, content={"detail": "Name and translated name cannot be empty."})
+    
+    # Check if location already exists
+    existing = table.find_one(name=location.name)
+    if existing:
+        return JSONResponse(status_code=202, content={"detail": "Location already exists."})
+    
+    data = {
+        'name': location.name,
+        'translated_name': location.translated_name,
+        'translated_name_anglicized': location.translated_name_anglicized,
+    }
+    inserted = table.insert(data)
+    return JSONResponse(content={"success": True, "id": inserted})
+
+@app.get('/locations', response_model=List[LocationEntry], response_class=JSONResponse)
+def get_locations():
+    table = db['locations']
+    locations = list(table.all())
+    return JSONResponse(content=locations)
