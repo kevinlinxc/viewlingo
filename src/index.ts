@@ -33,7 +33,7 @@ const PORT = parseInt(process.env.PORT || '3000');
  * @param mimeType - The MIME type of the image
  * @returns Promise<{word: string, characters: string, anglicized: string}> - The analysis and translation result
  */
-async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: string, language: string = "Mandarin Chinese"): Promise<{word: string, characters: string, anglicized: string}> {
+async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: string, language: string = "Mandarin"): Promise<{word: string, characters: string, anglicized: string}> {
   try {
     console.log(`Calling Gemini API to analyze image and translate subject to ${language}...`);
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -215,15 +215,17 @@ async function getObjectsFromRoboflow(imageBuffer: Buffer): Promise<any[]> {
     
     // console.log(result);
     // console.log(result.outputs[0].model_predictions)
-    let predictions = result.outputs[0].model_predictions;
-    // console.log(predictions);
-    const uniqueClasses = Array.from(new Set(predictions.map(prediction => prediction.class)));
-    console.log('Roboflow unique classes:', uniqueClasses);
-    console.log('Printing unique classes as a list:');
-    uniqueClasses.forEach((item, index) => {
-      console.log(`${index + 1}. ${item}`);
-    });
-    return result;
+    let predictions = result.outputs[0].model_predictions.predictions;
+    console.log(predictions);
+    if (Array.isArray(predictions)) {
+      const uniqueClasses = Array.from(new Set(predictions.map((prediction: { class: string }) => prediction.class)));
+      console.log('Roboflow unique classes:', uniqueClasses);
+      console.log('Printing unique classes as a list:');
+      return uniqueClasses
+    } else {
+      console.error('Predictions is not an array:', predictions);
+    }
+    return [];
   } catch (error) {
     console.error("Error calling Roboflow API:", error);
     return [];
@@ -237,6 +239,7 @@ class ViewLingo extends AppServer {
   private readonly LISTENING_DURATION_MS = 25000; // 25 seconds
   private customPrompt: string = "You are a language learning assistant. The user just learned about this word: {word} ({translation} - {anglicized}). Please respond helpfully to their question or comment about this word. If their dialog seems unrelated or not a question, simply return ''. Keep the response short and relevant.";
   private trackingLocation: boolean = false;
+  private currentLanguage: string = "Mandarin"; // Default language
   
   constructor() {
     super({
@@ -244,6 +247,18 @@ class ViewLingo extends AppServer {
       apiKey: MENTRAOS_API_KEY,
       port: PORT,
     });
+  }
+
+  /**
+   * Toggle between Mandarin and Korean languages
+   */
+  private toggleLanguage(): string {
+    if (this.currentLanguage === "Mandarin") {
+      this.currentLanguage = "Korean";
+    } else {
+      this.currentLanguage = "Mandarin";
+    }
+    return this.currentLanguage;
   }
 
   /**
@@ -316,12 +331,12 @@ class ViewLingo extends AppServer {
 
     let cleanup1 = session.events.onTranscription(async (data) => {
       // Only process final transcriptions when listening
+      console.log(`Transcription event received: ${data.text}`);
       if ("stop" in data.text.toLowerCase) {
         this.listeningUntil = Date.now() - 1000; // Reset listening state if "stop" is detected
       }
-      console.log(`Transcription event received: ${data.text}`);
       if (this.isListening() && data.isFinal) {
-        console.log(`Transcription received: ${data.text}`);
+        console.log(`Final transcription received: ${data.text}`);
         
         try {
           // Send transcription to Gemini with current word context
@@ -331,7 +346,7 @@ class ViewLingo extends AppServer {
             if (geminiResponse.trim() != '') {
                 // Display and speak the response
                 await this.speakToUser(session, geminiResponse);
-                // this.setListening(); 
+                this.setListening(); 
                 // 
             }
              
@@ -347,54 +362,79 @@ class ViewLingo extends AppServer {
       console.log(`Button pressed: ${button.buttonId}, type: ${button.pressType}`);
 
       if (button.pressType === 'long') {
-        // the user held the button, so we toggle the streaming mode
-        console.log("User long pressed, doing nothing");
+        // Toggle language on long press
+        const newLanguage = this.toggleLanguage();
+        console.log(`Language switched to: ${newLanguage}`);
+        await this.speakToUser(session, `Switched to ${newLanguage}`);
         return;
       } else {
         console.log(`User short pressed, taking photo`);
-        this.speakToUser(session, "Hold still!")
+        await this.speakToUser(session, "Hold still!");
         // the user pressed the button, so we take a single photo
         try {
           // first, get the photo
           const photo = await session.camera.requestPhoto();
-          // if there was an error, log it
           console.log(`Photo taken for user ${userId}, timestamp: ${photo.timestamp}`);
           this.debugSavePhoto(photo, userId);
 
-          this.speakToUser(session, "okay");
+          await this.speakToUser(session, "okay");
           
-          // Analyze the photo with Gemini
+          // Analyze the photo with Gemini using current language
           try {
-            // console.log(`Translation response from Gemini: ${JSON.stringify(translation_response)}`);
-            const translation_response = await analyzeAndTranslateWithGemini(photo.buffer, photo.mimeType);
-            getObjectsFromRoboflow(photo.buffer)
-            const speech = `${translation_response.word} in Mandarin is ${translation_response.characters}. Do you have any questions?`;
-            this.speakToUser(session, speech);
-            this.setListening();
+            const translation_response = await analyzeAndTranslateWithGemini(photo.buffer, photo.mimeType, this.currentLanguage);
+            const classes = await getObjectsFromRoboflow(photo.buffer);
+            let extra_speech = '';
+            if (classes && classes.length > 0) {
+                const translations = await Promise.all(
+                classes.map(async (item) => {
+                  const translation = await translateWithGemini(item);
+                  return { original: item, translated: translation.characters, anglicized: translation.anglicized };
+                })
+                );
 
-            
+                const additionalSpeech = translations
+                .map(({ original, translated }) => `${original}, which is ${translated}`)
+                .join(', ');
+
+                extra_speech = `I also see ${additionalSpeech}.`;
+
+                // Save each translated word to the API
+                for (const { original, translated, anglicized } of translations) {
+                const wordEntry: WordEntry = {
+                  word: original,
+                  translation: translated,
+                  anglosax: anglicized,
+                  picture: photo.buffer.toString('base64'),
+                  timestamp: new Date().toISOString(),
+                  language: this.currentLanguage === "Mandarin" ? 'zh' : 'ko',
+                  id: Date.now(),
+                };
+
+                sendWordToAPI(wordEntry);
+              }
+            }
+            const languageShort = this.currentLanguage;
+            const speech = `${translation_response.word} in ${languageShort} is ${translation_response.characters}. ${extra_speech} Do you have any questions?`;
+            await this.speakToUser(session, speech);
+            this.setListening();
 
             // Send the word entry to the external API
             const wordEntry: WordEntry = {
               word: translation_response.word,
               translation: translation_response.characters,
               anglosax: translation_response.anglicized,
-              picture: photo.buffer.toString('base64'), // Encode photo buffer as base64
+              picture: photo.buffer.toString('base64'),
               timestamp: new Date().toISOString(),
-              language: 'zh',
-              id: Date.now(), // Use timestamp as a unique ID
+              language: this.currentLanguage === "Mandarin" ? 'zh' : 'ko',
+              id: Date.now(),
             };
             
-            // Store current word data for context
             this.currentWordData = wordEntry;
-            
             sendWordToAPI(wordEntry);
 
           } catch (error) {
             this.logger.error(`Error analyzing photo with Gemini: ${error}`);
           }
-          
-          // Cache the photo (this will save it to file and open it)
         } catch (error) {
           this.logger.error(`Error taking photo: ${error}`);
         }
