@@ -105,6 +105,28 @@ def get_words_today():
         })
     return JSONResponse(content=filtered_words)
 
+@app.get('/words/by-language', response_class=JSONResponse)
+def get_words_by_language(language: str = Query(..., description="Language code to filter words (e.g., 'zh', 'es', etc.)")):
+    table = db['translations']
+    now = datetime.utcnow()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    words = list(table.find(timestamp={"between": [day_start, day_end]}, language=language, order_by='-timestamp', _limit=8))
+    filtered_words = []
+    for w in words:
+        if isinstance(w.get('timestamp'), datetime):
+            w['timestamp'] = w['timestamp'].isoformat()
+        filtered_words.append({
+            'word': w.get('word'),
+            'anglosax': w.get('anglosax'),
+            'translation': w.get('translation'),
+            'picture': w.get('picture'),
+            'timestamp': w.get('timestamp'),
+            'language': w.get('language'),
+            'id': w.get('id')
+        })
+    return JSONResponse(content=filtered_words)
+
 @app.post('/locations', response_class=JSONResponse)
 def add_location(location: LocationEntry):
     table = db['locations']
