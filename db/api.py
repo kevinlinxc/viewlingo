@@ -9,10 +9,13 @@ from datetime import datetime
 
 app = FastAPI()
 
-# Allow all origins for development/testing
+# Allow only localhost:3000 and viewlingo.vercel.app
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change to specific origins in production
+    allow_origins=[
+        "http://localhost:3000",
+        "https://viewlingo.vercel.app"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
