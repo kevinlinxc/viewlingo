@@ -90,11 +90,20 @@ def get_words_today():
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     day_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
     words = list(table.find(timestamp={"between": [day_start, day_end]}))
+    filtered_words = []
     for w in words:
         w.pop('picture', None)
+        w.pop('translation', None)
         if isinstance(w.get('timestamp'), datetime):
             w['timestamp'] = w['timestamp'].isoformat()
-    return JSONResponse(content=words)
+        filtered_words.append({
+            'word': w.get('word'),
+            'anglosax': w.get('anglosax'),
+            'timestamp': w.get('timestamp'),
+            'language': w.get('language'),
+            'id': w.get('id')
+        })
+    return JSONResponse(content=filtered_words)
 
 @app.post('/locations', response_class=JSONResponse)
 def add_location(location: LocationEntry):
