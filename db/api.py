@@ -5,7 +5,7 @@ from pydantic import BaseModel
 import dataset
 import os
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = FastAPI()
 
@@ -68,6 +68,20 @@ def get_words_of_the_day(date: str = Query(..., description="Date in YYYY-MM-DD 
         return JSONResponse(status_code=400, content={"detail": "Invalid date format. Use YYYY-MM-DD."})
     words = list(table.find(timestamp={"between": [day_start, day_end]}))
     for w in words:
+        if isinstance(w.get('timestamp'), datetime):
+            w['timestamp'] = w['timestamp'].isoformat()
+    return JSONResponse(content=words)
+
+# New endpoint: get all words from today (UTC), excluding the 'picture' column
+@app.get('/words/of-the-day', response_class=JSONResponse)
+def get_words_today():
+    table = db['translations']
+    now = datetime.utcnow()
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    words = list(table.find(timestamp={"between": [day_start, day_end]}))
+    for w in words:
+        w.pop('picture', None)
         if isinstance(w.get('timestamp'), datetime):
             w['timestamp'] = w['timestamp'].isoformat()
     return JSONResponse(content=words)
