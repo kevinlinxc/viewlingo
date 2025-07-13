@@ -11,7 +11,7 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
  * Interface representing a word entry to be sent to the API
  */
 interface WordEntry {
-  englishword: string;
+  word: string;
   translation: string;
   anglosax: string;
   picture: string;
@@ -33,7 +33,7 @@ const PORT = parseInt(process.env.PORT || '3000');
  * @param mimeType - The MIME type of the image
  * @returns Promise<{word: string, characters: string, anglicized: string}> - The analysis and translation result
  */
-async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: string, language: string = "Mandarin Chinese"): Promise<{englishword: string, characters: string, anglicized: string}> {
+async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: string, language: string = "Mandarin Chinese"): Promise<{word: string, characters: string, anglicized: string}> {
   try {
     console.log(`Calling Gemini API to analyze image and translate subject to ${language}...`);
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -46,7 +46,7 @@ async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: strin
       },
     };
 
-    const formatPrompt = '{"englishword": "", "characters": "", "anglicized": ""}';
+    const formatPrompt = '{"word": "", "characters": "", "anglicized": ""}';
     const prompt = `Analyze the subject of this image (just one subject, in minimum number of words, no adjectives or punctuation) and translate it to ${language}. Answer in this JSON format: ${formatPrompt}, with no other formatting, backticks, or padding.`;
     
     const result = await model.generateContent([prompt, imagePart]);
@@ -93,30 +93,6 @@ async function sendWordToAPI(wordData: WordEntry): Promise<void> {
 }
 
 /**
- * Queries the Gemini API with a given prompt
- * @param prompt - The prompt to send to the Gemini API
- * @returns Promise<string> - The response from the Gemini API
- */
-async function queryGemini(prompt: string): Promise<string> {
-  try {
-    console.log(`Querying Gemini API with prompt: ${prompt}`);
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-    const result = await model.generateContent([prompt]);
-    const response = await result.response;
-    const text = response.text();
-
-    console.log('Gemini response:', text);
-    return text.trim();
-  } catch (error) {
-    console.error('Error querying Gemini API:', error);
-    throw error;
-  }
-}
-
-
-/**
  * Photo Taker App with webview functionality for displaying photos
  * Extends AppServer to provide photo taking and webview display capabilities
  */
@@ -157,7 +133,6 @@ class ViewLingo extends AppServer {
         try {
           // first, get the photo
           const photo = await session.camera.requestPhoto();
-          session.audio.speak("Photo taken.");
           // if there was an error, log it
           console.log(`Photo taken for user ${userId}, timestamp: ${photo.timestamp}`);
           
@@ -166,13 +141,13 @@ class ViewLingo extends AppServer {
             // console.log(`Translation response from Gemini: ${JSON.stringify(translation_response)}`);
             const translation_response = await analyzeAndTranslateWithGemini(photo.buffer, photo.mimeType);
             session.layouts.showTextWall(`Translation: ${translation_response.characters} (${translation_response.anglicized})`, {durationMs: 5000});
-            const speak = `${translation_response.englishword} in Mandarin is ${translation_response.characters}`;
+            const speak = `${translation_response.word} in Mandarin is ${translation_response.characters}`;
             console.log(`Speaking ${speak}`)
             const response = await session.audio.speak(speak);
 
             // Send the word entry to the external API
             const wordEntry: WordEntry = {
-              englishword: translation_response.englishword,
+              word: translation_response.word,
               translation: translation_response.characters,
               anglosax: translation_response.anglicized,
               picture: photo.buffer.toString('base64'), // Encode photo buffer as base64
@@ -181,9 +156,6 @@ class ViewLingo extends AppServer {
               id: Date.now() // Use timestamp as a unique ID
             };
             await sendWordToAPI(wordEntry);
-
-            // set current word entry 
-            this.currentWordData = wordEntry;
 
           } catch (error) {
             this.logger.error(`Error analyzing photo with Gemini: ${error}`);
