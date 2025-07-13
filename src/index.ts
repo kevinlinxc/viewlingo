@@ -6,24 +6,12 @@ import * as fs from 'fs';
 import { exec } from 'child_process';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-/**
- * Interface representing a stored photo with metadata
- */
-interface StoredPhoto {
-  requestId: string;
-  buffer: Buffer;
-  timestamp: Date;
-  userId: string;
-  mimeType: string;
-  filename: string;
-  size: number;
-}
 
 /**
  * Interface representing a word entry to be sent to the API
  */
 interface WordEntry {
-  word: string;
+  englishword: string;
   translation: string;
   anglosax: string;
   picture: string;
@@ -38,67 +26,6 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY ?? (() => { throw new Error('G
 const API_ENDPOINT = process.env.API_ENDPOINT ?? (() => { throw new Error('API_ENDPOINT is not set in .env file'); })();
 const PORT = parseInt(process.env.PORT || '3000');
 
-/**
- * Analyzes an image using the Gemini API
- * @param imageBytes - The image data as a Buffer
- * @param mimeType - The MIME type of the image
- * @returns Promise<string> - The response text from Gemini
- */
-async function analyzeImageWithGemini(imageBytes: Buffer, mimeType: string): Promise<string> {
-  try {
-    console.log("Calling Gemini API to analyze image...");
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
-
-    const imagePart = {
-      inlineData: {
-        data: imageBytes.toString('base64'),
-        mimeType: mimeType,
-      },
-    };
-
-    const prompt = "What is the subject of this image? Answer in few words, with no adjectives or grammar, just a noun.";
-
-    const result = await model.generateContent([prompt, imagePart]);
-    const response = await result.response;
-    const text = response.text();
-    
-    console.log('Gemini response:', text);
-    return text;
-  } catch (error) {
-    console.error('Error calling Gemini API:', error);
-    throw error;
-  }
-}
-
-/**
- * Translates a word or phrase to Mandarin Chinese using the Gemini API
- * @param wordOrPhrase - The word or phrase to translate
- * @returns Promise<{characters: string, anglicized: string}> - The translation result
- */
-async function translateWithGemini(wordOrPhrase: string): Promise<{characters: string, anglicized: string}> {
-  try {
-    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-
-    const formatPrompt = '{"characters": "", "anglicized": ""}';
-    const prompt = `What is \`${wordOrPhrase}\` in Mandarin Chinese? Answer in this JSON format: ${formatPrompt}, with no other formatting or padding`;
-
-    const result = await model.generateContent(prompt);
-    const response = await result.response;
-    const text = response.text();
-    
-    console.log('Gemini translation response:', text);
-    
-    // Parse the JSON response
-    const translation = JSON.parse(text.trim());
-    return translation;
-  } catch (error) {
-    console.error('Error translating with Gemini API:', error);
-    throw error;
-  }
-}
-
 
 /**
  * Analyzes an image and translates the subject to Mandarin Chinese using the Gemini API
@@ -106,7 +33,7 @@ async function translateWithGemini(wordOrPhrase: string): Promise<{characters: s
  * @param mimeType - The MIME type of the image
  * @returns Promise<{word: string, characters: string, anglicized: string}> - The analysis and translation result
  */
-async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: string, language: string = "Mandarin Chinese"): Promise<{word: string, characters: string, anglicized: string}> {
+async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: string, language: string = "Mandarin Chinese"): Promise<{englishword: string, characters: string, anglicized: string}> {
   try {
     console.log(`Calling Gemini API to analyze image and translate subject to ${language}...`);
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -119,8 +46,8 @@ async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: strin
       },
     };
 
-    const formatPrompt = '{"word": "", "characters": "", "anglicized": ""}';
-    const prompt = `Analyze the subject of this image (just one subject, in minimum number of words, no adjectives or punctuation) and translate it to ${language}. Answer in this JSON format: ${formatPrompt}, with no other formatting or padding.`;
+    const formatPrompt = '{"englishword": "", "characters": "", "anglicized": ""}';
+    const prompt = `Analyze the subject of this image (just one subject, in minimum number of words, no adjectives or punctuation) and translate it to ${language}. Answer in this JSON format: ${formatPrompt}, with no other formatting, backticks, or padding.`;
     
     const result = await model.generateContent([prompt, imagePart]);
     const response = await result.response;
@@ -166,14 +93,35 @@ async function sendWordToAPI(wordData: WordEntry): Promise<void> {
 }
 
 /**
+ * Queries the Gemini API with a given prompt
+ * @param prompt - The prompt to send to the Gemini API
+ * @returns Promise<string> - The response from the Gemini API
+ */
+async function queryGemini(prompt: string): Promise<string> {
+  try {
+    console.log(`Querying Gemini API with prompt: ${prompt}`);
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const result = await model.generateContent([prompt]);
+    const response = await result.response;
+    const text = response.text();
+
+    console.log('Gemini response:', text);
+    return text.trim();
+  } catch (error) {
+    console.error('Error querying Gemini API:', error);
+    throw error;
+  }
+}
+
+
+/**
  * Photo Taker App with webview functionality for displaying photos
  * Extends AppServer to provide photo taking and webview display capabilities
  */
 class ViewLingo extends AppServer {
-  private photos: Map<string, StoredPhoto> = new Map(); // Store photos by userId
-  private latestPhotoTimestamp: Map<string, number> = new Map(); // Track latest photo timestamp per user
-  private isStreamingPhotos: Map<string, boolean> = new Map(); // Track if we are streaming photos for a user
-  private nextPhotoTime: Map<string, number> = new Map(); // Track next photo time for a user
+  private currentWordData: WordEntry | null = null;
 
   constructor() {
     super({
@@ -190,10 +138,9 @@ class ViewLingo extends AppServer {
   protected async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> {
     // this gets called whenever a user launches the app
     console.log(`Session started for user ${userId}`);
+    session.audio.speak("Ready!")
 
     // set the initial state of the user
-    this.isStreamingPhotos.set(userId, false);
-    this.nextPhotoTime.set(userId, Date.now());
 
     // this gets called whenever a user presses a button
     session.events.onButtonPress(async (button) => {
@@ -205,10 +152,12 @@ class ViewLingo extends AppServer {
         return;
       } else {
         console.log(`User short pressed, taking photo`);
+        session.audio.speak("Taking photo, hold still");
         // the user pressed the button, so we take a single photo
         try {
           // first, get the photo
           const photo = await session.camera.requestPhoto();
+          session.audio.speak("Photo taken.");
           // if there was an error, log it
           console.log(`Photo taken for user ${userId}, timestamp: ${photo.timestamp}`);
           
@@ -217,13 +166,13 @@ class ViewLingo extends AppServer {
             // console.log(`Translation response from Gemini: ${JSON.stringify(translation_response)}`);
             const translation_response = await analyzeAndTranslateWithGemini(photo.buffer, photo.mimeType);
             session.layouts.showTextWall(`Translation: ${translation_response.characters} (${translation_response.anglicized})`, {durationMs: 5000});
-            const speak = `${translation_response.word} in Mandarin is ${translation_response.characters}`;
+            const speak = `${translation_response.englishword} in Mandarin is ${translation_response.characters}`;
             console.log(`Speaking ${speak}`)
             const response = await session.audio.speak(speak);
 
             // Send the word entry to the external API
             const wordEntry: WordEntry = {
-              word: translation_response.word,
+              englishword: translation_response.englishword,
               translation: translation_response.characters,
               anglosax: translation_response.anglicized,
               picture: photo.buffer.toString('base64'), // Encode photo buffer as base64
@@ -232,6 +181,9 @@ class ViewLingo extends AppServer {
               id: Date.now() // Use timestamp as a unique ID
             };
             await sendWordToAPI(wordEntry);
+
+            // set current word entry 
+            this.currentWordData = wordEntry;
 
           } catch (error) {
             this.logger.error(`Error analyzing photo with Gemini: ${error}`);
@@ -266,8 +218,6 @@ class ViewLingo extends AppServer {
 
   protected async onStop(sessionId: string, userId: string, reason: string): Promise<void> {
     // clean up the user's state
-    this.isStreamingPhotos.set(userId, false);
-    this.nextPhotoTime.delete(userId);
     console.log(`Session stopped for user ${userId}, reason: ${reason}`);
   }
 
@@ -275,16 +225,6 @@ class ViewLingo extends AppServer {
    * Cache a photo for display
    */
   private async debugSavePhoto(photo: PhotoData, userId: string) {
-    // create a new stored photo object which includes the photo data and the user id
-    const cachedPhoto: StoredPhoto = {
-      requestId: photo.requestId,
-      buffer: photo.buffer,
-      timestamp: photo.timestamp,
-      userId: userId,
-      mimeType: photo.mimeType,
-      filename: photo.filename,
-      size: photo.size
-    };
 
     // Save photo to local file
     try {
@@ -319,7 +259,7 @@ class ViewLingo extends AppServer {
       this.logger.error(`Error saving photo to file: ${error}`);
     }
 
-    console.log(`Photo cached for user ${userId}, timestamp: ${cachedPhoto.timestamp}`);
+    console.log(`Photo cached for user ${userId}, timestamp: ${photo.timestamp}`);
   }
 
 }
