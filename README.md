@@ -1,4 +1,5 @@
-<img width="511" height="508" alt="techstack" src="https://github.com/user-attachments/assets/1287e700-fa38-411e-be36-d83cc524ca07" />
+<img wi<img width="576" height="518" alt="techstack2" src="https://github.com/user-attachments/assets/9d07c5f6-5ece-4993-b36a-6ac0ffbe3a25" />
+
 <img width="349" height="532" alt="Architecture2" src="https://github.com/user-attachments/assets/4d8b4882-b555-4e5d-b45f-c3ec70f9169e" />
 
 # MentraOS-Camera-Example-App
