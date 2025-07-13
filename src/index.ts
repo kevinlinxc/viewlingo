@@ -48,10 +48,18 @@ async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: strin
 
     const formatPrompt = '{"word": "", "characters": "", "anglicized": ""}';
     const prompt = `Analyze the subject of this image (just one subject, in minimum number of words, no adjectives or punctuation) and translate it to ${language}. Answer in this JSON format: ${formatPrompt}, with no other formatting, backticks, or padding.`;
+
     
     const result = await model.generateContent([prompt, imagePart]);
     const response = await result.response;
-    const text = response.text();
+    let text = response.text();
+    // if the response starts with ```, delete the first line, and the last line
+    if (text.startsWith('```')) {
+      const lines = text.split('\n');
+      lines.shift(); // Remove the first line
+      lines.pop(); // Remove the last line
+      text = lines.join('\n');
+    }
 
     console.log('Gemini combined response:', text);
 
@@ -64,6 +72,38 @@ async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: strin
   }
 }
 
+
+async function translateWithGemini(wordOrPhrase: string): Promise<{characters: string, anglicized: string}> {
+  try {
+    const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+    const formatPrompt = '{"characters": "", "anglicized": ""}';
+    const prompt = `What is \`${wordOrPhrase}\` in Mandarin Chinese? Answer in this JSON format: ${formatPrompt}, with no other formatting or padding`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    let text = response.text();
+
+    // if the response starts with ```, delete the first line, and the last line
+    if (text.startsWith('```')) {
+      const lines = text.split('\n');
+      lines.shift(); // Remove the first line
+      lines.pop(); // Remove the last line
+      text = lines.join('\n');
+    }
+    
+    console.log('Gemini translation response:', text);
+    
+    // Parse the JSON response
+    const translation = JSON.parse(text.trim());
+    return translation;
+  } catch (error) {
+    console.error('Error translating with Gemini API:', error);
+    throw error;
+  }
+}
+
 /**
  * Sends a word entry to the external API
  * @param wordData - The word entry data to send
@@ -71,7 +111,8 @@ async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: strin
  */
 async function sendWordToAPI(wordData: WordEntry): Promise<void> {
   try {
-    const response = await fetch(`${API_ENDPOINT}/words`, {
+    console.log(`Sending word data to API: https://surface-walls-handle-rows.trycloudflare.com/words`);
+    const response = await fetch(`https://surface-walls-handle-rows.trycloudflare.com/words`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -81,7 +122,7 @@ async function sendWordToAPI(wordData: WordEntry): Promise<void> {
     });
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
+      throw new Error(`HTTP error! status: ${response.status}, ${response.statusText}`);
     }
 
     const result = await response.json();
@@ -93,31 +134,116 @@ async function sendWordToAPI(wordData: WordEntry): Promise<void> {
 }
 
 
+async function sendLocationToAPI(location: string, translated_location: string, translated_location_anglicized: string): Promise<void> {
+  try {
+    const response = await fetch(`https://surface-walls-handle-rows.trycloudflare.com/locations`, {
+      method: 'POST',
+      headers: {
+      'Content-Type': 'application/json',
+      'ngrok-skip-browser-warning': 'true'
+      },
+      body: JSON.stringify({ name: location, translated_name: translated_location, translated_name_anglicized: translated_location_anglicized })
+    });
 
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}, ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    console.log('Location successfully sent to API:', result);
+  } catch (error) {
+    console.error('Error sending location to API:', error);
+    throw error;
+  }
+}
 
 /**
- * Photo Taker App with webview functionality for displaying photos
- * Extends AppServer to provide photo taking and webview display capabilities
+ * Get location name from latitude and longitude using Nominatim reverse geocoding
+ * @param lat - Latitude
+ * @param lon - Longitude
+ * @returns Promise<string> - Location description
+ */
+async function reverseGeocode(lat: number, lon: number): Promise<string> {
+  try {
+    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lon}&zoom=14&addressdetails=1`;
+    console.log(`Reverse geocoding lat and long...`);
+    const response = await fetch(url, {
+      headers: {
+        'User-Agent': 'ViewLingo/1.0'
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // Extract meaningful location info
+    // console.log('Reverse geocode data:', data);
+    const address = data.address;
+    return address["city"];  // could do cooler stuff later but city for now
+  } catch (error) {
+    console.error('Error reverse geocoding:', error);
+    return 'Location unavailable';
+  }
+}
+
+
+async function getObjectsFromRoboflow(imageBuffer: Buffer): Promise<any[]> {
+  try {
+    const base64Image = imageBuffer.toString("base64");
+
+    const response = await fetch('https://serverless.roboflow.com/infer/workflows/viewlingo/custom-workflow', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        api_key: '02ovWJL9iw4AFK4di9sS',
+        inputs: {
+          "image": { "type": "base64", "value": base64Image }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Roboflow API request failed with status ${response.status}: ${response.statusText}`);
+    }
+
+    const result = await response.json();
+    
+    // console.log(result);
+    // console.log(result.outputs[0].model_predictions)
+    let predictions = result.outputs[0].model_predictions;
+    // console.log(predictions);
+    const uniqueClasses = Array.from(new Set(predictions.map(prediction => prediction.class)));
+    console.log('Roboflow unique classes:', uniqueClasses);
+    console.log('Printing unique classes as a list:');
+    uniqueClasses.forEach((item, index) => {
+      console.log(`${index + 1}. ${item}`);
+    });
+    return result;
+  } catch (error) {
+    console.error("Error calling Roboflow API:", error);
+    return [];
+  }
+}
+/**
  */
 class ViewLingo extends AppServer {
   private currentWordData: WordEntry | null = null;
   private listeningUntil: number = 0; // Timestamp when listening expires
-  private readonly LISTENING_DURATION_MS = 10000; // 10 seconds
-  private customPrompt: string = "You are a language learning assistant. The user just learned about this word: {word} ({translation} - {anglicized}). Please respond helpfully to their question or comment about this word. Keep responses brief and educational.";
-
+  private readonly LISTENING_DURATION_MS = 25000; // 25 seconds
+  private customPrompt: string = "You are a language learning assistant. The user just learned about this word: {word} ({translation} - {anglicized}). Please respond helpfully to their question or comment about this word. If their dialog seems unrelated or not a question, simply return ''. Keep the response short and relevant.";
+  private trackingLocation: boolean = false;
+  
   constructor() {
     super({
       packageName: PACKAGE_NAME,
       apiKey: MENTRAOS_API_KEY,
       port: PORT,
     });
-  }
-
-  /**
-   * Set custom prompt for Gemini interactions
-   */
-  setCustomPrompt(prompt: string): void {
-    this.customPrompt = prompt;
   }
 
   /**
@@ -172,12 +298,51 @@ class ViewLingo extends AppServer {
    */
   protected async onSession(session: AppSession, sessionId: string, userId: string): Promise<void> {
     // this gets called whenever a user launches the app
+
+
     console.log(`Session started for user ${userId}`);
-    await session.audio.speak("Ready!")
+    if (this.trackingLocation){
+      const location = await session.location.getLatestLocation({ accuracy: 'standard' });
+      const city = await reverseGeocode(location.lat, location.lng);
+      console.log(`Lat: ${location.lat}, Lng: ${location.lng}, ${city}`);
+      const translated_city = await translateWithGemini(city);
+      console.log(`Translated city: ${translated_city.characters} (${translated_city.anglicized})`);
+      sendLocationToAPI(city, translated_city.characters, translated_city.anglicized);
+
+      // const translated_city = 
+    }
 
     // set the initial state of the user
 
-    // this gets called whenever a user presses a button
+    let cleanup1 = session.events.onTranscription(async (data) => {
+      // Only process final transcriptions when listening
+      if ("stop" in data.text.toLowerCase) {
+        this.listeningUntil = Date.now() - 1000; // Reset listening state if "stop" is detected
+      }
+      console.log(`Transcription event received: ${data.text}`);
+      if (this.isListening() && data.isFinal) {
+        console.log(`Transcription received: ${data.text}`);
+        
+        try {
+          // Send transcription to Gemini with current word context
+          const geminiResponse = await this.sendPromptToGemini(data.text);
+          console.log(`Gemini response: ${geminiResponse}`);
+          
+            if (geminiResponse.trim() != '') {
+                // Display and speak the response
+                await this.speakToUser(session, geminiResponse);
+                // this.setListening(); 
+                // 
+            }
+             
+
+          
+        } catch (error) {
+          console.error('Error processing transcription with Gemini:', error);
+        }
+      }
+    });
+    // // this gets called whenever a user presses a button
     session.events.onButtonPress(async (button) => {
       console.log(`Button pressed: ${button.buttonId}, type: ${button.pressType}`);
 
@@ -187,37 +352,27 @@ class ViewLingo extends AppServer {
         return;
       } else {
         console.log(`User short pressed, taking photo`);
-        await session.audio.speak("Hold still, taking photo");
+        this.speakToUser(session, "Hold still!")
         // the user pressed the button, so we take a single photo
         try {
           // first, get the photo
           const photo = await session.camera.requestPhoto();
           // if there was an error, log it
           console.log(`Photo taken for user ${userId}, timestamp: ${photo.timestamp}`);
+          this.debugSavePhoto(photo, userId);
+
+          this.speakToUser(session, "okay");
           
           // Analyze the photo with Gemini
           try {
             // console.log(`Translation response from Gemini: ${JSON.stringify(translation_response)}`);
             const translation_response = await analyzeAndTranslateWithGemini(photo.buffer, photo.mimeType);
-            session.layouts.showTextWall(`Translation: ${translation_response.characters} (${translation_response.anglicized})`, {durationMs: 5000});
-            const speak = `${translation_response.word} in Mandarin is ${translation_response.characters}`;
-            console.log(`Speaking ${speak}`)
-            const elevenLabsVoiceId = process.env.ELEVENLABS_VOICE_ID || "your_elevenlabs_voice_id";
-            const elevenLabsModelId = process.env.ELEVENLABS_MODEL_ID || "eleven_flash_v2_5";
-            const voiceSettings = {
-              stability: 0.7,
-              similarity_boost: 0.8,
-              style: 0.3,
-              speed: 0.9
-            };
-            const response = await session.audio.speak(
-              speak,
-              {
-                voice_id: elevenLabsVoiceId,
-                model_id: elevenLabsModelId,
-                voice_settings: voiceSettings
-              }
-            );
+            getObjectsFromRoboflow(photo.buffer)
+            const speech = `${translation_response.word} in Mandarin is ${translation_response.characters}. Do you have any questions?`;
+            this.speakToUser(session, speech);
+            this.setListening();
+
+            
 
             // Send the word entry to the external API
             const wordEntry: WordEntry = {
@@ -227,54 +382,73 @@ class ViewLingo extends AppServer {
               picture: photo.buffer.toString('base64'), // Encode photo buffer as base64
               timestamp: new Date().toISOString(),
               language: 'zh',
-              id: Date.now() // Use timestamp as a unique ID
+              id: Date.now(), // Use timestamp as a unique ID
             };
             
             // Store current word data for context
             this.currentWordData = wordEntry;
             
-            await sendWordToAPI(wordEntry);
-            this.setListening();
+            sendWordToAPI(wordEntry);
 
           } catch (error) {
             this.logger.error(`Error analyzing photo with Gemini: ${error}`);
-            session.layouts.showTextWall("Error analyzing photo", {durationMs: 3000});
           }
           
           // Cache the photo (this will save it to file and open it)
-          this.debugSavePhoto(photo, userId);
         } catch (error) {
           this.logger.error(`Error taking photo: ${error}`);
         }
       }
     });
+    this.speakToUser(session, "Ready to take pictures!");
 
-    session.events.onTranscription(async (data) => {
-      // Only process final transcriptions when listening
-      if (this.isListening() && data.isFinal) {
-        console.log(`Transcription received: ${data.text}`);
-        this.setListening(); // Reset listening timer
-        
-        try {
-          // Send transcription to Gemini with current word context
-          const geminiResponse = await this.sendPromptToGemini(data.text);
-          console.log(`Gemini response: ${geminiResponse}`);
-          
-          // Display and speak the response
-          session.layouts.showTextWall(geminiResponse, {durationMs: 5000});
-          await session.audio.speak(geminiResponse);
-          
-        } catch (error) {
-          console.error('Error processing transcription with Gemini:', error);
-          session.layouts.showTextWall("Sorry, I didn't understand that", {durationMs: 3000});
-        }
-      }
-    });
+    this.addCleanupHandler(cleanup1);
   }
 
   protected async onStop(sessionId: string, userId: string, reason: string): Promise<void> {
-    // clean up the user's state
     console.log(`Session stopped for user ${userId}, reason: ${reason}`);
+  }
+
+  /**
+   * Helper function to speak text to the user
+   */
+  private async speakToUser(session: AppSession, text: string): Promise<void> {
+    try {
+      console.log(`Speaking to user: ${text}`);
+      // set listeningto be in the future so any speaking doesn't get transcribed
+      this.listeningUntil = Date.now(); // 1 second buffer
+      const elevenLabsVoiceId = process.env.ELEVENLABS_VOICE_ID || "your_elevenlabs_voice_id";
+      const elevenLabsModelId = process.env.ELEVENLABS_MODEL_ID || "eleven_flash_v2_5";
+      const voiceSettings = {
+        stability: 0.7,
+        similarity_boost: 0.8,
+        style: 0.3,
+        speed: 1.0
+      };
+      // dont await otherwise we will be sad
+      session.audio.speak(
+        text,
+        {
+          voice_id: elevenLabsVoiceId,
+          model_id: elevenLabsModelId,
+          voice_settings: voiceSettings,
+          volume: 1.0
+        },
+        
+);
+      console.log(`Spoke to user: ${text}`);
+    } catch (error) {
+      console.error('Error speaking to user:', error);
+    }
+  }
+
+  /**
+   * Helper function to speak both English and non-English text separately
+   */
+  private async speakToUserBilingual(session: AppSession, englishText: string, nonEnglishText: string): Promise<void> {
+    // this thing has a huge gap in between idk how to get rid of it
+    await this.speakToUser(session, englishText);
+    await this.speakToUser(session, nonEnglishText);
   }
 
   /**
