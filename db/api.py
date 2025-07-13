@@ -106,11 +106,16 @@ def get_words_today():
     return JSONResponse(content=filtered_words)
 
 @app.get('/words/by-language', response_class=JSONResponse)
-def get_words_by_language(language: str = Query(..., description="Language code to filter words (e.g., 'zh', 'es', etc.)")):
+def get_words_by_language(
+    language: str = Query(..., description="Language code to filter words (e.g., 'zh', 'es', etc.)"),
+    date: str = Query(..., description="Date in YYYY-MM-DD format")
+):
     table = db['translations']
-    now = datetime.utcnow()
-    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    day_end = now.replace(hour=23, minute=59, second=59, microsecond=999999)
+    try:
+        day_start = datetime.strptime(date, "%Y-%m-%d")
+        day_end = day_start.replace(hour=23, minute=59, second=59, microsecond=999999)
+    except ValueError:
+        return JSONResponse(status_code=400, content={"detail": "Invalid date format. Use YYYY-MM-DD."})
     words = list(table.find(timestamp={"between": [day_start, day_end]}, language=language, order_by='-timestamp', _limit=8))
     filtered_words = []
     for w in words:
