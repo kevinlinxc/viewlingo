@@ -47,7 +47,7 @@ async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: strin
     };
 
     const formatPrompt = '{"word": "", "characters": "", "anglicized": ""}';
-    const prompt = `Analyze the subject of this image (just one subject, in minimum number of words, no adjectives or punctuation) and translate it to ${language}. Answer in this JSON format: ${formatPrompt}, with no other formatting, backticks, or padding.`;
+    const prompt = `Analyze the subject of this image (just one subject, in minimum number of words, no adjectives or punctuation) and translate it to ${language}. Answer in this JSON format: ${formatPrompt}, with no other formatting, backticks, or padding. The word key should be in english.`;
 
     
     const result = await model.generateContent([prompt, imagePart]);
@@ -73,13 +73,13 @@ async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: strin
 }
 
 
-async function translateWithGemini(wordOrPhrase: string): Promise<{characters: string, anglicized: string}> {
+async function translateWithGemini(wordOrPhrase: string, language: string = "Mandarin Chinese"): Promise<{characters: string, anglicized: string}> {
   try {
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const formatPrompt = '{"characters": "", "anglicized": ""}';
-    const prompt = `What is \`${wordOrPhrase}\` in Mandarin Chinese? Answer in this JSON format: ${formatPrompt}, with no other formatting or padding`;
+    const prompt = `What is \`${wordOrPhrase}\` in ${language}? Answer in this JSON format: ${formatPrompt}, with no other formatting or padding`;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -236,8 +236,8 @@ async function getObjectsFromRoboflow(imageBuffer: Buffer): Promise<any[]> {
 class ViewLingo extends AppServer {
   private currentWordData: WordEntry | null = null;
   private listeningUntil: number = 0; // Timestamp when listening expires
-  private readonly LISTENING_DURATION_MS = 25000; // 25 seconds
-  private customPrompt: string = "You are a language learning assistant. The user just learned about this word: {word} ({translation} - {anglicized}). Please respond helpfully to their question or comment about this word. If their dialog seems unrelated or not a question, simply return ''. Keep the response short and relevant.";
+  private readonly LISTENING_DURATION_MS = 25000; // 25 secondsunrelate
+  private customPrompt: string = "You are a language learning assistant. The user just learned about this word: {word} ({translation} - {anglicized}). Please respond helpfully to their question or comment about this word. Keep the response short and relevant.";
   private trackingLocation: boolean = false;
   private currentLanguage: string = "Mandarin"; // Default language
   
@@ -335,7 +335,7 @@ class ViewLingo extends AppServer {
       if ("stop" in data.text.toLowerCase) {
         this.listeningUntil = Date.now() - 1000; // Reset listening state if "stop" is detected
       }
-      if (this.isListening() && data.isFinal) {
+      if (this.isListening() && data.isFinal && (data.text.toLowerCase().includes("can you") || data.text.toLowerCase().includes("what is") || data.text.toLowerCase().includes("how"))) {
         console.log(`Final transcription received: ${data.text}`);
         
         try {
@@ -377,17 +377,20 @@ class ViewLingo extends AppServer {
           console.log(`Photo taken for user ${userId}, timestamp: ${photo.timestamp}`);
           this.debugSavePhoto(photo, userId);
 
-          await this.speakToUser(session, "okay");
+          await this.speakToUser(session, "okay, one sec");
           
           // Analyze the photo with Gemini using current language
           try {
             const translation_response = await analyzeAndTranslateWithGemini(photo.buffer, photo.mimeType, this.currentLanguage);
-            const classes = await getObjectsFromRoboflow(photo.buffer);
+            let classes = await getObjectsFromRoboflow(photo.buffer);
+            // Remove the main translation_response.word from the Roboflow classes if it exists
+            const filteredClasses = classes.filter(item => item.toLowerCase() !== translation_response.word.toLowerCase());
+            classes = filteredClasses;
             let extra_speech = '';
             if (classes && classes.length > 0) {
                 const translations = await Promise.all(
                 classes.map(async (item) => {
-                  const translation = await translateWithGemini(item);
+                  const translation = await translateWithGemini(item, this.currentLanguage);
                   return { original: item, translated: translation.characters, anglicized: translation.anglicized };
                 })
                 );
@@ -475,7 +478,7 @@ class ViewLingo extends AppServer {
           volume: 1.0
         },
         
-);
+      );
       console.log(`Spoke to user: ${text}`);
     } catch (error) {
       console.error('Error speaking to user:', error);
