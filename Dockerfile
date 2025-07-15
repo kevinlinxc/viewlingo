@@ -7,4 +7,6 @@ RUN bun install
 # Copy the application code
 COPY . .
 # Expose the port
-EXPOSE 80
+EXPOSE 3000
+
+ENTRYPOINT [ "bun", "run", "dev" ]
