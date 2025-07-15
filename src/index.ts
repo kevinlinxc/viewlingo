@@ -111,8 +111,8 @@ async function translateWithGemini(wordOrPhrase: string, language: string = "Man
  */
 async function sendWordToAPI(wordData: WordEntry): Promise<void> {
   try {
-    console.log(`Sending word data to API: https://surface-walls-handle-rows.trycloudflare.com/words`);
-    const response = await fetch(`https://surface-walls-handle-rows.trycloudflare.com/words`, {
+    console.log(`Sending word data to API: ${API_ENDPOINT}`);
+    const response = await fetch(`${API_ENDPOINT}/words`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
