@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, Query
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -7,7 +7,7 @@ import os
 from typing import List, Optional
 from datetime import datetime, timedelta
 
-app = FastAPI()
+app = FastAPI(root_path="/api", docs_url="/docs")
 
 # Allow only localhost:3000 and viewlingo.vercel.app
 app.add_middleware(
@@ -25,6 +25,7 @@ app.add_middleware(
 db_path = os.path.join(os.path.dirname(__file__), 'translations.db')
 db_url = f'sqlite:///{db_path}'
 db = dataset.connect(db_url)
+
 
 class WordEntry(BaseModel):
     word: str
@@ -52,7 +53,8 @@ def get_words():
             w['timestamp'] = w['timestamp'].isoformat()
     return JSONResponse(content=words)
 
-@app.post('/words', response_class=JSONResponse)
+
+@app.post("/words", response_class=JSONResponse)
 def add_word(entry: WordEntry):
     table = db['translations']
     ts = entry.timestamp or datetime.utcnow()

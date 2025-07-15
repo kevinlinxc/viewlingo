@@ -20,3 +20,4 @@ db/translations.db-wal
 db/translations.db-shm 
 
 photos/*
+ngrok.config
