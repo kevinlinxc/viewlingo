@@ -1,11 +1,19 @@
-from fastapi import FastAPI, Query
+from fastapi import FastAPI, Query, Depends, HTTPException, Header
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import dataset
 import os
+from pathlib import Path
+import hashlib
 from typing import List, Optional
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+# Load environment variables
+env_path = Path(__file__).resolve().parent / '.env'
+load_dotenv(env_path)
+
 
 app = FastAPI(root_path="/api", docs_url="/docs")
 
@@ -25,6 +33,25 @@ app.add_middleware(
 db_path = os.path.join(os.path.dirname(__file__), 'translations.db')
 db_url = f'sqlite:///{db_path}'
 db = dataset.connect(db_url)
+expected_hash = os.environ["API_TOKEN_HASH"]
+
+# Authentication dependency
+def verify_api_token(x_api_token: str = Header(None)):
+    if not x_api_token:
+        raise HTTPException(status_code=401, detail="X-API-Token header missing")
+    
+    # Hash the provided token
+    token_hash = hashlib.sha256(x_api_token.encode()).hexdigest()
+    
+    # Get the expected hash from environment
+    if not expected_hash:
+        raise HTTPException(status_code=500, detail="API token hash not configured")
+    
+    # Compare hashes
+    if token_hash != expected_hash:
+        raise HTTPException(status_code=401, detail="Invalid API token")
+    
+    return True
 
 
 class WordEntry(BaseModel):
@@ -45,7 +72,7 @@ class LocationEntry(BaseModel):
 
 
 @app.get('/words', response_model=List[WordEntry], response_class=JSONResponse)
-def get_words():
+def get_words(authenticated: bool = Depends(verify_api_token)):
     table = db['translations']
     words = list(table.all())
     for w in words:
@@ -55,7 +82,7 @@ def get_words():
 
 
 @app.post("/words", response_class=JSONResponse)
-def add_word(entry: WordEntry):
+def add_word(entry: WordEntry, authenticated: bool = Depends(verify_api_token)):
     table = db['translations']
     ts = entry.timestamp or datetime.utcnow()
     data = {
@@ -70,7 +97,7 @@ def add_word(entry: WordEntry):
     return JSONResponse(content={"success": True, "id": inserted})
 
 @app.get('/words/full', response_model=List[WordEntry], response_class=JSONResponse)
-def get_words_of_the_day(date: str = Query(..., description="Date in YYYY-MM-DD format")):
+def get_words_of_the_day(date: str = Query(..., description="Date in YYYY-MM-DD format"), authenticated: bool = Depends(verify_api_token)):
     table = db['translations']
     try:
         day_start = datetime.strptime(date, "%Y-%m-%d")
@@ -86,7 +113,7 @@ def get_words_of_the_day(date: str = Query(..., description="Date in YYYY-MM-DD 
 
 # New endpoint: get all words from today (UTC), excluding the 'picture' column
 @app.get('/words/of-the-day', response_class=JSONResponse)
-def get_words_today():
+def get_words_today(authenticated: bool = Depends(verify_api_token)):
     table = db['translations']
     now = datetime.utcnow()
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -110,7 +137,8 @@ def get_words_today():
 @app.get('/words/by-language', response_class=JSONResponse)
 def get_words_by_language(
     language: str = Query(..., description="Language code to filter words (e.g., 'zh', 'es', etc.)"),
-    date: str = Query(..., description="Date in YYYY-MM-DD format")
+    date: str = Query(..., description="Date in YYYY-MM-DD format"),
+    authenticated: bool = Depends(verify_api_token)
 ):
     table = db['translations']
     try:
@@ -135,7 +163,7 @@ def get_words_by_language(
     return JSONResponse(content=filtered_words)
 
 @app.post('/locations', response_class=JSONResponse)
-def add_location(location: LocationEntry):
+def add_location(location: LocationEntry, authenticated: bool = Depends(verify_api_token)):
     table = db['locations']
     if not location.name or not location.translated_name:
         return JSONResponse(status_code=400, content={"detail": "Name and translated name cannot be empty."})
@@ -154,7 +182,7 @@ def add_location(location: LocationEntry):
     return JSONResponse(content={"success": True, "id": inserted})
 
 @app.get('/locations', response_model=List[LocationEntry], response_class=JSONResponse)
-def get_locations():
+def get_locations(authenticated: bool = Depends(verify_api_token)):
     table = db['locations']
     locations = list(table.all())
     return JSONResponse(content=locations)
