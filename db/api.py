@@ -72,7 +72,7 @@ class LocationEntry(BaseModel):
 
 
 @app.get('/words', response_model=List[WordEntry], response_class=JSONResponse)
-def get_words(authenticated: bool = Depends(verify_api_token)):
+def get_words():
     table = db['translations']
     words = list(table.all())
     for w in words:
@@ -82,7 +82,7 @@ def get_words(authenticated: bool = Depends(verify_api_token)):
 
 
 @app.post("/words", response_class=JSONResponse)
-def add_word(entry: WordEntry, authenticated: bool = Depends(verify_api_token)):
+def add_word(entry: WordEntry):
     table = db['translations']
     ts = entry.timestamp or datetime.utcnow()
     data = {
@@ -97,7 +97,7 @@ def add_word(entry: WordEntry, authenticated: bool = Depends(verify_api_token)):
     return JSONResponse(content={"success": True, "id": inserted})
 
 @app.get('/words/full', response_model=List[WordEntry], response_class=JSONResponse)
-def get_words_of_the_day(date: str = Query(..., description="Date in YYYY-MM-DD format"), authenticated: bool = Depends(verify_api_token)):
+def get_words_of_the_day(date: str = Query(..., description="Date in YYYY-MM-DD format")):
     table = db['translations']
     try:
         day_start = datetime.strptime(date, "%Y-%m-%d")
@@ -113,7 +113,7 @@ def get_words_of_the_day(date: str = Query(..., description="Date in YYYY-MM-DD 
 
 # New endpoint: get all words from today (UTC), excluding the 'picture' column
 @app.get('/words/of-the-day', response_class=JSONResponse)
-def get_words_today(authenticated: bool = Depends(verify_api_token)):
+def get_words_today():
     table = db['translations']
     now = datetime.utcnow()
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -138,7 +138,6 @@ def get_words_today(authenticated: bool = Depends(verify_api_token)):
 def get_words_by_language(
     language: str = Query(..., description="Language code to filter words (e.g., 'zh', 'es', etc.)"),
     date: str = Query(..., description="Date in YYYY-MM-DD format"),
-    authenticated: bool = Depends(verify_api_token)
 ):
     table = db['translations']
     try:
@@ -163,7 +162,7 @@ def get_words_by_language(
     return JSONResponse(content=filtered_words)
 
 @app.post('/locations', response_class=JSONResponse)
-def add_location(location: LocationEntry, authenticated: bool = Depends(verify_api_token)):
+def add_location(location: LocationEntry):
     table = db['locations']
     if not location.name or not location.translated_name:
         return JSONResponse(status_code=400, content={"detail": "Name and translated name cannot be empty."})
@@ -182,7 +181,7 @@ def add_location(location: LocationEntry, authenticated: bool = Depends(verify_a
     return JSONResponse(content={"success": True, "id": inserted})
 
 @app.get('/locations', response_model=List[LocationEntry], response_class=JSONResponse)
-def get_locations(authenticated: bool = Depends(verify_api_token)):
+def get_locations():
     table = db['locations']
     locations = list(table.all())
     return JSONResponse(content=locations)
