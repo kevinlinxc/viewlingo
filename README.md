@@ -31,13 +31,6 @@ ELEVENLABS_MODEL_ID=eleven_multilingual_v2
 
 ```
 
-Make another .env file in /db with this field (figure out how to generate your own API key/hash):
-```
-API_TOKEN_HASH=
-```
-
-Should probably just make these one .env and move the API Dockerfile out but oh well
-
 2.Run the typescript backend + python api/db with Docker:
 
 ```bash

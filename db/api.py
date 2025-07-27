@@ -33,10 +33,10 @@ app.add_middleware(
 db_path = os.path.join(os.path.dirname(__file__), 'translations.db')
 db_url = f'sqlite:///{db_path}'
 db = dataset.connect(db_url)
-expected_hash = os.environ["API_TOKEN_HASH"]
 
 # Authentication dependency
 def verify_api_token(x_api_token: str = Header(None)):
+    expected_hash = os.environ["API_TOKEN_HASH"]
     if not x_api_token:
         raise HTTPException(status_code=401, detail="X-API-Token header missing")
     

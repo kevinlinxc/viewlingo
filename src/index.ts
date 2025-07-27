@@ -237,7 +237,7 @@ class ViewLingo extends AppServer {
   private currentWordData: WordEntry | null = null;
   private listeningUntil: number = 0; // Timestamp when listening expires
   private readonly LISTENING_DURATION_MS = 25000; // 25 secondsunrelate
-  private customPrompt: string = "You are a language learning assistant. The user just learned about this word: {word} ({translation} - {anglicized}). Please respond helpfully to their question or comment about this word. Keep the response short and relevant.";
+  private customPrompt: string = "You are a language learning assistant, helping the user learn {language}. The user just learned about this word: {word} ({translation} - {anglicized}). Please respond helpfully to their question or comment about this word. Keep the response short and relevant. and use both english and the language they are learning.";
   private trackingLocation: boolean = false;
   private currentLanguage: string = "Mandarin"; // Default language
   
@@ -280,6 +280,7 @@ class ViewLingo extends AppServer {
         prompt = prompt.replace('{word}', this.currentWordData.word);
         prompt = prompt.replace('{translation}', this.currentWordData.translation);
         prompt = prompt.replace('{anglicized}', this.currentWordData.anglosax);
+        prompt = prompt.replace('{language}', this.currentLanguage);
       }
       
       const fullPrompt = `${prompt}\n\nUser said: "${text}"`;
@@ -443,6 +444,7 @@ class ViewLingo extends AppServer {
         }
       }
     });
+    await new Promise(resolve => setTimeout(resolve, 3000));
     this.speakToUser(session, "Ready to take pictures!");
 
     this.addCleanupHandler(cleanup1);
