@@ -33,7 +33,7 @@ const PORT = parseInt(process.env.PORT || '3000');
  * @param mimeType - The MIME type of the image
  * @returns Promise<{word: string, characters: string, anglicized: string}> - The analysis and translation result
  */
-async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: string, language: string = "Mandarin"): Promise<{word: string, characters: string, anglicized: string}> {
+async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: string, language: string = "Mandarin"): Promise<{ word: string, characters: string, anglicized: string }> {
   try {
     console.log(`Calling Gemini API to analyze image and translate subject to ${language}...`);
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
@@ -49,7 +49,7 @@ async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: strin
     const formatPrompt = '{"word": "", "characters": "", "anglicized": ""}';
     const prompt = `Analyze the subject of this image (just one subject, in minimum number of words, no adjectives or punctuation) and translate it to ${language}. Answer in this JSON format: ${formatPrompt}, with no other formatting, backticks, or padding. The word key should be in english.`;
 
-    
+
     const result = await model.generateContent([prompt, imagePart]);
     const response = await result.response;
     let text = response.text();
@@ -73,7 +73,7 @@ async function analyzeAndTranslateWithGemini(imageBytes: Buffer, mimeType: strin
 }
 
 
-async function translateWithGemini(wordOrPhrase: string, language: string = "Mandarin Chinese"): Promise<{characters: string, anglicized: string}> {
+async function translateWithGemini(wordOrPhrase: string, language: string = "Mandarin Chinese"): Promise<{ characters: string, anglicized: string }> {
   try {
     const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
     const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
@@ -92,9 +92,9 @@ async function translateWithGemini(wordOrPhrase: string, language: string = "Man
       lines.pop(); // Remove the last line
       text = lines.join('\n');
     }
-    
+
     console.log('Gemini translation response:', text);
-    
+
     // Parse the JSON response
     const translation = JSON.parse(text.trim());
     return translation;
@@ -139,8 +139,8 @@ async function sendLocationToAPI(location: string, translated_location: string, 
     const response = await fetch(`https://surface-walls-handle-rows.trycloudflare.com/locations`, {
       method: 'POST',
       headers: {
-      'Content-Type': 'application/json',
-      'ngrok-skip-browser-warning': 'true'
+        'Content-Type': 'application/json',
+        'ngrok-skip-browser-warning': 'true'
       },
       body: JSON.stringify({ name: location, translated_name: translated_location, translated_name_anglicized: translated_location_anglicized })
     });
@@ -178,7 +178,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
     }
 
     const data = await response.json();
-    
+
     // Extract meaningful location info
     // console.log('Reverse geocode data:', data);
     const address = data.address;
@@ -212,7 +212,7 @@ async function getObjectsFromRoboflow(imageBuffer: Buffer): Promise<any[]> {
     }
 
     const result = await response.json();
-    
+
     // console.log(result);
     // console.log(result.outputs[0].model_predictions)
     let predictions = result.outputs[0].model_predictions.predictions;
@@ -240,7 +240,8 @@ class ViewLingo extends AppServer {
   private customPrompt: string = "You are a language learning assistant, helping the user learn {language}. The user just learned about this word: {word} ({translation} - {anglicized}). Please respond helpfully to their question or comment about this word. Keep the response short and relevant. and use both english and the language they are learning.";
   private trackingLocation: boolean = false;
   private currentLanguage: string = "Mandarin"; // Default language
-  
+  private enableRoboflow: boolean = false; // roboflow is cool and adds extra object finds but slows things down for a critical-path demo so option to disable it
+
   constructor() {
     super({
       packageName: PACKAGE_NAME,
@@ -274,7 +275,7 @@ class ViewLingo extends AppServer {
       const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
       let prompt = this.customPrompt;
-      
+
       // Replace placeholders with current word data
       if (this.currentWordData) {
         prompt = prompt.replace('{word}', this.currentWordData.word);
@@ -282,9 +283,9 @@ class ViewLingo extends AppServer {
         prompt = prompt.replace('{anglicized}', this.currentWordData.anglosax);
         prompt = prompt.replace('{language}', this.currentLanguage);
       }
-      
+
       const fullPrompt = `${prompt}\n\nUser said: "${text}"`;
-      
+
       const result = await model.generateContent(fullPrompt);
       const response = await result.response;
       return response.text();
@@ -317,7 +318,7 @@ class ViewLingo extends AppServer {
 
 
     console.log(`Session started for user ${userId}`);
-    if (this.trackingLocation){
+    if (this.trackingLocation) {
       const location = await session.location.getLatestLocation({ accuracy: 'standard' });
       const city = await reverseGeocode(location.lat, location.lng);
       console.log(`Lat: ${location.lat}, Lng: ${location.lng}, ${city}`);
@@ -338,21 +339,21 @@ class ViewLingo extends AppServer {
       }
       if (this.isListening() && data.isFinal && (data.text.toLowerCase().includes("can you") || data.text.toLowerCase().includes("what is") || data.text.toLowerCase().includes("how"))) {
         console.log(`Final transcription received: ${data.text}`);
-        
+
         try {
           // Send transcription to Gemini with current word context
           const geminiResponse = await this.sendPromptToGemini(data.text);
           console.log(`Gemini response: ${geminiResponse}`);
-          
-            if (geminiResponse.trim() != '') {
-                // Display and speak the response
-                await this.speakToUser(session, geminiResponse);
-                this.setListening(); 
-                // 
-            }
-             
 
-          
+          if (geminiResponse.trim() != '') {
+            // Display and speak the response
+            await this.speakToUser(session, geminiResponse);
+            this.setListening();
+            // 
+          }
+
+
+
         } catch (error) {
           console.error('Error processing transcription with Gemini:', error);
         }
@@ -378,43 +379,45 @@ class ViewLingo extends AppServer {
           console.log(`Photo taken for user ${userId}, timestamp: ${photo.timestamp}`);
           this.debugSavePhoto(photo, userId);
 
-          await this.speakToUser(session, "okay, one sec");
-          
+          // await this.speakToUser(session, "okay, one sec");
+
           // Analyze the photo with Gemini using current language
           try {
             const translation_response = await analyzeAndTranslateWithGemini(photo.buffer, photo.mimeType, this.currentLanguage);
-            let classes = await getObjectsFromRoboflow(photo.buffer);
-            // Remove the main translation_response.word from the Roboflow classes if it exists
-            const filteredClasses = classes.filter(item => item.toLowerCase() !== translation_response.word.toLowerCase());
-            classes = filteredClasses;
+            // skip roboflow if boolean set
             let extra_speech = '';
-            if (classes && classes.length > 0) {
+            if (this.enableRoboflow) {
+              let classes = await getObjectsFromRoboflow(photo.buffer);
+              // Remove the main translation_response.word from the Roboflow classes if it exists
+              const filteredClasses = classes.filter(item => item.toLowerCase() !== translation_response.word.toLowerCase());
+              classes = filteredClasses;
+              if (classes && classes.length > 0) {
                 const translations = await Promise.all(
-                classes.map(async (item) => {
-                  const translation = await translateWithGemini(item, this.currentLanguage);
-                  return { original: item, translated: translation.characters, anglicized: translation.anglicized };
-                })
+                  classes.map(async (item) => {
+                    const translation = await translateWithGemini(item, this.currentLanguage);
+                    return { original: item, translated: translation.characters, anglicized: translation.anglicized };
+                  })
                 );
 
                 const additionalSpeech = translations
-                .map(({ original, translated }) => `${original}, which is ${translated}`)
-                .join(', ');
+                  .map(({ original, translated }) => `${original}, which is ${translated}`)
+                  .join(', ');
 
                 extra_speech = `I also see ${additionalSpeech}.`;
 
                 // Save each translated word to the API
                 for (const { original, translated, anglicized } of translations) {
-                const wordEntry: WordEntry = {
-                  word: original,
-                  translation: translated,
-                  anglosax: anglicized,
-                  picture: photo.buffer.toString('base64'),
-                  timestamp: new Date().toISOString(),
-                  language: this.currentLanguage === "Mandarin" ? 'zh' : 'ko',
-                  id: Date.now(),
-                };
-
-                sendWordToAPI(wordEntry);
+                  const wordEntry: WordEntry = {
+                    word: original,
+                    translation: translated,
+                    anglosax: anglicized,
+                    picture: photo.buffer.toString('base64'),
+                    timestamp: new Date().toISOString(),
+                    language: this.currentLanguage === "Mandarin" ? 'zh' : 'ko',
+                    id: Date.now(),
+                  };
+                  sendWordToAPI(wordEntry);
+                }
               }
             }
             const languageShort = this.currentLanguage;
@@ -432,7 +435,7 @@ class ViewLingo extends AppServer {
               language: this.currentLanguage === "Mandarin" ? 'zh' : 'ko',
               id: Date.now(),
             };
-            
+
             this.currentWordData = wordEntry;
             sendWordToAPI(wordEntry);
 
@@ -444,6 +447,7 @@ class ViewLingo extends AppServer {
         }
       }
     });
+    // add a bit of delay when starting up
     await new Promise(resolve => setTimeout(resolve, 3000));
     this.speakToUser(session, "Ready to take pictures!");
 
@@ -479,7 +483,7 @@ class ViewLingo extends AppServer {
           voice_settings: voiceSettings,
           volume: 1.0
         },
-        
+
       );
       console.log(`Spoke to user: ${text}`);
     } catch (error) {
@@ -508,28 +512,31 @@ class ViewLingo extends AppServer {
         fs.mkdirSync(photosDir, { recursive: true });
       }
 
-      const extension = photo.mimeType.includes('jpeg') ? 'jpg' : 
-                       photo.mimeType.includes('png') ? 'png' : 
-                       photo.mimeType.includes('webp') ? 'webp' : 'jpg';
-      
+      const extension = photo.mimeType.includes('jpeg') ? 'jpg' :
+        photo.mimeType.includes('png') ? 'png' :
+          photo.mimeType.includes('webp') ? 'webp' : 'jpg';
+
       const filename = `photo_${userId}_${Date.now()}.${extension}`;
       const filepath = path.join(photosDir, filename);
-      
+
       fs.writeFileSync(filepath, photo.buffer);
       console.log(`Photo saved to: ${filepath}`);
-      
+
       // Open the file automatically (works on macOS, Linux, Windows)
-      const openCommand = process.platform === 'darwin' ? 'open' : 
-                         process.platform === 'win32' ? 'start' : 'xdg-open';
-      
-      exec(`${openCommand} "${filepath}"`, (error) => {
-        if (error) {
-          this.logger.error(`Error opening photo: ${error}`);
-        } else {
-          console.log(`Photo opened: ${filepath}`);
-        }
-      });
-      
+      const open_file = 'false'; //disable opening file since we are running in docker
+      if (open_file) {
+        const openCommand = process.platform === 'darwin' ? 'open' :
+          process.platform === 'win32' ? 'start' : 'xdg-open';
+
+        exec(`${openCommand} "${filepath}"`, (error) => {
+          if (error) {
+            this.logger.error(`Error opening photo: ${error}`);
+          } else {
+            console.log(`Photo opened: ${filepath}`);
+          }
+        });
+      }
+
     } catch (error) {
       this.logger.error(`Error saving photo to file: ${error}`);
     }
